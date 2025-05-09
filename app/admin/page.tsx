@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import styles from "./admin.module.css"
-import ImageManager from "@/components/image-manager"
+// import ImageManager from "@/components/image-manager"
 import VideoManager from "@/components/video-manager"
 import PdfManager from "@/components/pdf-manager"
 
 export default function AdminPanel() {
-  const [activeTab, setActiveTab] = useState("images")
+  const [activeTab, setActiveTab] = useState("videos")
   const router = useRouter()
 
   useEffect(() => {
@@ -35,12 +35,12 @@ export default function AdminPanel() {
 
       <div className={styles.tabsContainer}>
         <div className={styles.tabs}>
-          <button
+          {/* <button
             className={`${styles.tabButton} ${activeTab === "images" ? styles.active : ""}`}
             onClick={() => setActiveTab("images")}
           >
             Rasmlar
-          </button>
+          </button> */}
           <button
             className={`${styles.tabButton} ${activeTab === "videos" ? styles.active : ""}`}
             onClick={() => setActiveTab("videos")}
@@ -56,7 +56,7 @@ export default function AdminPanel() {
         </div>
 
         <div className={styles.tabContent}>
-          {activeTab === "images" && <ImageManager />}
+          {/* {activeTab === "images" && <ImageManager />} */}
           {activeTab === "videos" && <VideoManager />}
           {activeTab === "pdfs" && <PdfManager />}
         </div>

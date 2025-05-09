@@ -5,7 +5,7 @@ import type { Metadata } from "next"
 export const metadata: Metadata = {
   title: "Admin Panel",
   description: "Admin panel for content management",
-    generator: 'v0.dev'
+    generator: 'Umayr-dev'
 }
 
 export default function RootLayout({

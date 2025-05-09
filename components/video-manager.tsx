@@ -1,92 +1,112 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import styles from "./manager.module.css"
 
 interface Video {
   id: string
   url: string
-  title: string
-  thumbnailUrl: string
 }
 
 export default function VideoManager() {
   const [videos, setVideos] = useState<Video[]>([])
   const [url, setUrl] = useState("")
-  const [title, setTitle] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
 
+  // API'dan ma'lumotlarni olish
   useEffect(() => {
-    // Load saved videos from localStorage
-    const savedVideos = localStorage.getItem("videos")
-    if (savedVideos) {
+    const fetchVideos = async () => {
       try {
-        setVideos(JSON.parse(savedVideos))
+        const response = await fetch("https://4e439b85aa8b8540.mokky.dev/videos")
+        if (!response.ok) {
+          throw new Error("Videolarni yuklashda xatolik yuz berdi")
+        }
+        const data = await response.json()
+        setVideos(data)
       } catch (error) {
-        console.error("Error parsing saved videos:", error)
+        console.error("Xatolik yuz berdi:", error)
+        alert("Videolarni yuklashda xatolik yuz berdi.")
       }
     }
+
+    fetchVideos()
   }, [])
 
-  useEffect(() => {
-    // Save videos to localStorage whenever they change
-    localStorage.setItem("videos", JSON.stringify(videos))
-  }, [videos])
-
-  const extractVideoId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/
-    const match = url.match(regExp)
-    return match && match[2].length === 11 ? match[2] : null
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    const videoId = extractVideoId(url)
+    try {
+      if (editingId) {
+        // Mavjud videoni yangilash
+        const response = await fetch(`https://4e439b85aa8b8540.mokky.dev/videos/${editingId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url }),
+        })
 
-    if (!videoId) {
-      alert("Noto'g'ri YouTube URL. Iltimos, to'g'ri URL kiriting.")
-      return
-    }
+        if (!response.ok) {
+          throw new Error("Videoni yangilashda xatolik")
+        }
 
-    const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/0.jpg`
+        const updatedVideo = await response.json()
+        setVideos(videos.map((video) => (video.id === editingId ? updatedVideo : video)))
+        setEditingId(null)
+      } else {
+        // Yangi video qo'shish
+        const response = await fetch("https://4e439b85aa8b8540.mokky.dev/videos", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url }),
+        })
 
-    if (editingId) {
-      // Update existing video
-      setVideos(videos.map((video) => (video.id === editingId ? { ...video, url, title, thumbnailUrl } : video)))
-      setEditingId(null)
-    } else {
-      // Add new video
-      const newVideo: Video = {
-        id: Date.now().toString(),
-        url,
-        title,
-        thumbnailUrl,
+        if (!response.ok) {
+          throw new Error("Videoni qo'shishda xatolik")
+        }
+
+        const newVideo = await response.json()
+        setVideos([...videos, newVideo])
       }
-      setVideos([...videos, newVideo])
-    }
 
-    // Reset form
-    setUrl("")
-    setTitle("")
+      // Formani tozalash
+      setUrl("")
+    } catch (error) {
+      console.error("Xatolik yuz berdi:", error)
+      alert(`Xatolik yuz berdi: ${error.message}`)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("Haqiqatan ham bu videoni o'chirmoqchimisiz?")) {
+      try {
+        const response = await fetch(`https://4e439b85aa8b8540.mokky.dev/videos/${id}`, {
+          method: "DELETE",
+        })
+
+        if (!response.ok) {
+          throw new Error("Videoni o'chirishda xatolik")
+        }
+
+        setVideos(videos.filter((video) => video.id !== id))
+      } catch (error) {
+        console.error("Xatolik yuz berdi:", error)
+        alert(`O'chirishda xatolik: ${error.message}`)
+      }
+    }
   }
 
   const handleEdit = (video: Video) => {
     setEditingId(video.id)
     setUrl(video.url)
-    setTitle(video.title)
-  }
-
-  const handleDelete = (id: string) => {
-    setVideos(videos.filter((video) => video.id !== id))
   }
 
   const handleCancel = () => {
     setEditingId(null)
     setUrl("")
-    setTitle("")
   }
 
   return (
@@ -95,25 +115,12 @@ export default function VideoManager() {
 
       <form onSubmit={handleSubmit} className={styles.form}>
         <div className={styles.formGroup}>
-          <label htmlFor="videoUrl">YouTube video URL</label>
+          <label htmlFor="videoUrl">Video URL</label>
           <input
             type="url"
             id="videoUrl"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.youtube.com/watch?v=..."
-            className={styles.textInput}
-            required
-          />
-        </div>
-
-        <div className={styles.formGroup}>
-          <label htmlFor="videoTitle">Video sarlavhasi</label>
-          <input
-            type="text"
-            id="videoTitle"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
             className={styles.textInput}
             required
           />
@@ -135,8 +142,7 @@ export default function VideoManager() {
         {videos.map((video) => (
           <div key={video.id} className={styles.item}>
             <div className={styles.videoItem}>
-              <img src={video.thumbnailUrl || "/placeholder.svg"} alt={video.title} className={styles.videoThumbnail} />
-              <h3 className={styles.videoTitle}>{video.title}</h3>
+              <div className={styles.videoUrl}>{video.url}</div>
             </div>
             <div className={styles.itemActions}>
               <button onClick={() => handleEdit(video)} className={styles.editButton}>

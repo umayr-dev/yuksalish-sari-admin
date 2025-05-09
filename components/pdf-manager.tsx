@@ -1,16 +1,34 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
+import { getFirestore, collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore"
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
+import { initializeApp, getApps, getApp } from "firebase/app"
 import styles from "./manager.module.css"
+
+// Firebase konfiguratsiyasi
+const firebaseConfig = {
+  apiKey: "AIzaSyC8lso_FRfFnYhCK0UciGmnoMa2BrlrD-o",
+  authDomain: "yuksalish-sari.firebaseapp.com",
+  projectId: "yuksalish-sari",
+  storageBucket: "yuksalish-sari.appspot.com", // To'g'ri storage bucket
+  messagingSenderId: "61916922480",
+  appId: "1:61916922480:web:85fb4ae941c40c9f346ab5",
+  measurementId: "G-069D3RYNWY"
+}
+
+// Firebase ilovasini ishga tushirish yoki mavjudini olish
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
+const db = getFirestore(app)
+const storage = getStorage(app)
 
 interface PdfBook {
   id: string
-  file: File
+  fileUrl: string
   title: string
   description: string
-  coverImage: string
+  coverImageUrl: string
   fileName: string
 }
 
@@ -23,24 +41,109 @@ export default function PdfManager() {
   const [description, setDescription] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
 
+  // Firebase'dan ma'lumotlarni olish
   useEffect(() => {
-    // Load saved books from localStorage
-    const savedBooks = localStorage.getItem("pdfBooks")
-    if (savedBooks) {
-      try {
-        // We can't store File objects in localStorage, so we'll just use the metadata
-        const parsedBooks = JSON.parse(savedBooks)
-        setBooks(parsedBooks)
-      } catch (error) {
-        console.error("Error parsing saved books:", error)
-      }
+    const fetchBooks = async () => {
+      const booksCollection = collection(db, "books")
+      const booksSnapshot = await getDocs(booksCollection)
+      const booksList = booksSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as PdfBook[]
+      setBooks(booksList)
     }
+
+    fetchBooks()
   }, [])
 
-  useEffect(() => {
-    // Save books to localStorage whenever they change
-    localStorage.setItem("pdfBooks", JSON.stringify(books))
-  }, [books])
+  const uploadFile = async (file: File, folder: string) => {
+    const fileRef = ref(storage, `${folder}/${file.name}`)
+    await uploadBytes(fileRef, file)
+    return await getDownloadURL(fileRef)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (pdfFile && coverImage) {
+      try {
+        const fileUrl = await uploadFile(pdfFile, "pdfs")
+        const coverImageUrl = await uploadFile(coverImage, "covers")
+
+        const newBook: PdfBook = {
+          id: editingId || Date.now().toString(),
+          fileUrl,
+          title,
+          description,
+          coverImageUrl,
+          fileName: pdfFile.name,
+        }
+
+        if (editingId) {
+          // Firebase'da mavjud kitobni yangilash
+          const bookDoc = doc(db, "books", editingId)
+          await updateDoc(bookDoc, {
+            title,
+            description,
+            coverImageUrl,
+            fileUrl,
+            fileName: pdfFile.name,
+          })
+          setBooks(books.map((book) => (book.id === editingId ? newBook : book)))
+          setEditingId(null)
+        } else {
+          // Firebase'da yangi kitob qo'shish
+          const booksCollection = collection(db, "books")
+          const docRef = await addDoc(booksCollection, {
+            title,
+            description,
+            coverImageUrl,
+            fileUrl,
+            fileName: pdfFile.name,
+          })
+          setBooks([...books, { ...newBook, id: docRef.id }])
+        }
+
+        // Formani tozalash
+        setPdfFile(null)
+        setCoverImage(null)
+        setCoverPreview("")
+        setTitle("")
+        setDescription("")
+      } catch (error) {
+        console.error("Xatolik yuz berdi:", error)
+        alert("Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+      }
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      const book = books.find((b) => b.id === id)
+      if (book && book.fileName && book.coverImageUrl) {
+        // Firebase Storage'dan fayllarni o'chirish
+        const fileRef = ref(storage, `pdfs/${book.fileName}`)
+        const coverRef = ref(storage, `covers/${book.fileName}`)
+        await deleteObject(fileRef)
+        await deleteObject(coverRef)
+
+        // Firebase Firestore'dan kitobni o'chirish
+        const bookDoc = doc(db, "books", id)
+        await deleteDoc(bookDoc)
+        setBooks(books.filter((book) => book.id !== id))
+      }
+    } catch (error) {
+      console.error("Xatolik yuz berdi:", error)
+      alert("Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+    }
+  }
+
+  const handleEdit = (book: PdfBook) => {
+    setEditingId(book.id)
+    setTitle(book.title)
+    setDescription(book.description)
+    setCoverPreview(book.coverImageUrl)
+  }
 
   const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -54,74 +157,12 @@ export default function PdfManager() {
       const file = e.target.files[0]
       setCoverImage(file)
 
-      // Create preview
       const reader = new FileReader()
       reader.onloadend = () => {
         setCoverPreview(reader.result as string)
       }
       reader.readAsDataURL(file)
     }
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (pdfFile && coverImage) {
-      if (editingId) {
-        // Update existing book
-        setBooks(
-          books.map((book) =>
-            book.id === editingId
-              ? {
-                  ...book,
-                  title,
-                  description,
-                  coverImage: coverPreview,
-                  file: pdfFile,
-                  fileName: pdfFile.name,
-                }
-              : book,
-          ),
-        )
-        setEditingId(null)
-      } else {
-        // Add new book
-        const newBook: PdfBook = {
-          id: Date.now().toString(),
-          file: pdfFile,
-          title,
-          description,
-          coverImage: coverPreview,
-          fileName: pdfFile.name,
-        }
-        setBooks([...books, newBook])
-      }
-
-      // Reset form
-      setPdfFile(null)
-      setCoverImage(null)
-      setCoverPreview("")
-      setTitle("")
-      setDescription("")
-
-      // Reset file inputs
-      const pdfInput = document.getElementById("pdfFile") as HTMLInputElement
-      const coverInput = document.getElementById("coverImage") as HTMLInputElement
-      if (pdfInput) pdfInput.value = ""
-      if (coverInput) coverInput.value = ""
-    }
-  }
-
-  const handleEdit = (book: PdfBook) => {
-    setEditingId(book.id)
-    setTitle(book.title)
-    setDescription(book.description)
-    setCoverPreview(book.coverImage)
-    // We can't set the files back since they're not actually stored
-  }
-
-  const handleDelete = (id: string) => {
-    setBooks(books.filter((book) => book.id !== id))
   }
 
   const handleCancel = () => {
@@ -131,18 +172,11 @@ export default function PdfManager() {
     setCoverPreview("")
     setTitle("")
     setDescription("")
-
-    // Reset file inputs
-    const pdfInput = document.getElementById("pdfFile") as HTMLInputElement
-    const coverInput = document.getElementById("coverImage") as HTMLInputElement
-    if (pdfInput) pdfInput.value = ""
-    if (coverInput) coverInput.value = ""
   }
 
   return (
     <div>
       <h2 className={styles.sectionTitle}>PDF Kitoblar boshqaruvi</h2>
-
       <form onSubmit={handleSubmit} className={styles.form}>
         <div className={styles.formGroup}>
           <label htmlFor="pdfFile">PDF fayl tanlang</label>
@@ -218,7 +252,7 @@ export default function PdfManager() {
         {books.map((book) => (
           <div key={book.id} className={styles.item}>
             <div className={styles.bookItem}>
-              <img src={book.coverImage || "/placeholder.svg"} alt={book.title} className={styles.bookCover} />
+              <img src={book.coverImageUrl || "/placeholder.svg"} alt={book.title} className={styles.bookCover} />
               <div className={styles.bookInfo}>
                 <h3 className={styles.bookTitle}>{book.title}</h3>
                 <p className={styles.bookFileName}>{book.fileName}</p>
